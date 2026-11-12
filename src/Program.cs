@@ -436,7 +436,7 @@ static class Program
     static string FindAdb(string explicitPath, bool interactive)
     {
         if (explicitPath != null) return explicitPath;
-        var candidates = new List<string> { Path.Combine(AppContext.BaseDirectory, "adb.exe") };
+        var candidates = new List<string> { Path.Combine(Path.GetDirectoryName(Environment.ProcessPath), "adb.exe") };
         foreach (string dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
             if (dir.Length > 0) candidates.Add(Path.Combine(dir.Trim('"'), "adb.exe"));
         foreach (string key in new[] { "ANDROID_HOME", "ANDROID_SDK_ROOT" })
@@ -497,6 +497,30 @@ static class Program
             return input;
         }
     }
+    [System.Runtime.CompilerServices.MethodImpl(System.Runtime.CompilerServices.MethodImplOptions.NoInlining)]
+    static int MountDevice(string serial, string root, string mount, string stopFile, ulong total, ulong free, bool interactive)
+    {
+        using var stop = new ManualResetEventSlim();
+        Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); };
+        var fs = new AndroidFs(serial, root, total, free);
+        using var host = new FileSystemHost(fs);
+        int status = host.MountEx(mount, 8, null, false, 0);
+        if (status < 0) throw new IOException($"WinFsp mount failed: 0x{status:X8}");
+        Console.WriteLine($"MOUNTED {host.MountPoint()} <- {serial}:{root} (read-only)"); Console.Out.Flush();
+        if (interactive)
+        {
+            Console.WriteLine($"\n已挂载到 {mount}，可浏览或复制文件到电脑。\n请保留此窗口；在这里按回车，或按 Ctrl+C，正常卸载并退出。\n同时挂载其他手机时，再双击打开一个 EXE 窗口即可。");
+            _ = Task.Run(() => { Console.ReadLine(); stop.Set(); });
+        }
+        try {
+            int tick=0;
+            while (!stop.Wait(500)) {
+                if (stopFile != null && File.Exists(stopFile)) break;
+                if (!interactive && ++tick % 20 == 0) { fs.Stats(); Console.Out.Flush(); }
+            }
+        } finally { host.Unmount(); fs.Stats(); Console.WriteLine("UNMOUNTED"); }
+        return 0;
+    }
     static int Main(string[] args)
     {
         bool interactive = args.Length == 0;
@@ -515,7 +539,14 @@ static class Program
                     case "--adb": adb=args[++i]; break;
                     case "--serial": serial=args[++i]; break;
                     case "--stop-file": stopFile=args[++i]; break;
-                    case "--help": Console.WriteLine("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH] [--stop-file PATH]\nDouble-click with no arguments for device and drive selection.\n--license shows embedded project and WinFsp licenses."); return 0;
+                    case "--install-winfsp": return WinFspSetup.EnsureInstalled(false, true) ? 0 : 3010;
+                    case "--check-winfsp":
+                        Console.WriteLine("Bundled installer: " + WinFspSetup.InstallerName + " SHA256=" + WinFspSetup.InstallerHash);
+                        string installed = WinFspSetup.InstalledDirectory();
+                        Console.WriteLine(installed == null ? "WinFsp: not installed" : "WinFsp: " + installed);
+                        return installed == null ? 1 : 0;
+                    case "--extract-winfsp": WinFspSetup.ExtractInstaller(args[++i]); Console.WriteLine("Official WinFsp MSI extracted and SHA-256 verified."); return 0;
+                    case "--help": Console.WriteLine("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH] [--stop-file PATH]\nDouble-click for device selection and optional WinFsp setup.\n--check-winfsp checks installation; --install-winfsp installs only if missing.\n--extract-winfsp PATH extracts the official MSI without running it.\n--license shows embedded project and WinFsp licenses."); return 0;
                     case "--license":
                         foreach (string resource in new[] { "AndroidAdbFs.LICENSE", "AndroidAdbFs.WinFspLicense" })
                         {
@@ -525,10 +556,15 @@ static class Program
                         return 0;
                     default: throw new ArgumentException("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH]");
                 }
+            if (!WinFspSetup.EnsureInstalled(interactive))
+            {
+                if (interactive && !Console.IsInputRedirected) { Console.WriteLine("按回车退出。"); Console.ReadLine(); }
+                return 3010;
+            }
             adb = FindAdb(adb, interactive);
             if (interactive)
             {
-                Console.WriteLine("\nAndroid 文件盘（只读）\n需要已安装 WinFsp；手机无需 APK。\n");
+                Console.WriteLine("\nAndroid 文件盘（只读）\nWinFsp 已就绪；手机无需 APK。\n");
                 serial = ChooseDevice(adb);
                 mount = ChooseDrive();
             }
@@ -542,26 +578,7 @@ static class Program
             if (!root.StartsWith('/') || root.Contains('\n')) throw new IOException("Unable to resolve Android export root");
             var df = RunAdb(adb, "-s", serial, "shell", "df -k " + Quote(root)).Split('\n').Last().Split((char[])null, StringSplitOptions.RemoveEmptyEntries);
             ulong total = ulong.Parse(df[1]) * 1024, free = ulong.Parse(df[3]) * 1024;
-            using var stop = new ManualResetEventSlim();
-            Console.CancelKeyPress += (_, e) => { e.Cancel = true; stop.Set(); };
-            var fs = new AndroidFs(serial, root, total, free);
-            using var host = new FileSystemHost(fs);
-            int status = host.MountEx(mount, 8, null, false, 0);
-            if (status < 0) throw new IOException($"WinFsp mount failed: 0x{status:X8}");
-            Console.WriteLine($"MOUNTED {host.MountPoint()} <- {serial}:{root} (read-only)"); Console.Out.Flush();
-            if (interactive)
-            {
-                Console.WriteLine($"\n已挂载到 {mount}，可浏览或复制文件到电脑。\n请保留此窗口；在这里按回车，或按 Ctrl+C，正常卸载并退出。\n同时挂载其他手机时，再双击打开一个 EXE 窗口即可。");
-                _ = Task.Run(() => { Console.ReadLine(); stop.Set(); });
-            }
-            try {
-                int tick=0;
-                while (!stop.Wait(500)) {
-                    if (stopFile != null && File.Exists(stopFile)) break;
-                    if (!interactive && ++tick % 20 == 0) { fs.Stats(); Console.Out.Flush(); }
-                }
-            } finally { host.Unmount(); fs.Stats(); Console.WriteLine("UNMOUNTED"); }
-            return 0;
+            return MountDevice(serial, root, mount, stopFile, total, free, interactive);
         }
         catch (OperationCanceledException) { return 0; }
         catch (Exception ex)
