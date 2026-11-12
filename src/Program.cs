@@ -453,7 +453,7 @@ static class Program
         if (string.IsNullOrEmpty(input) || !File.Exists(input)) throw new IOException("ADB 路径无效。");
         return Path.GetFullPath(input);
     }
-    static string ChooseDevice(string adb)
+    static (string Serial, bool SingleDevice) ChooseDevice(string adb)
     {
         while (true)
         {
@@ -469,22 +469,31 @@ static class Program
                 if (retry == null || retry.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) throw new OperationCanceledException();
                 continue;
             }
+            if (devices.Count == 1)
+            {
+                Console.WriteLine($"\n已自动选择唯一一台已授权手机：{devices[0][0]}");
+                return (devices[0][0], true);
+            }
             Console.WriteLine("\n请选择要挂载的手机：");
             for (int i = 0; i < devices.Count; i++) Console.WriteLine($"  {i + 1}. {string.Join(' ', devices[i])}");
-            Console.Write(devices.Count == 1 ? "回车选择第 1 台，或输入 Q 退出：" : "输入编号，或输入 Q 退出：");
+            Console.Write("输入编号，或输入 Q 退出：");
             string input = Console.ReadLine()?.Trim();
             if (input == null || input.Equals("q", StringComparison.OrdinalIgnoreCase)) throw new OperationCanceledException();
-            if (input.Length == 0 && devices.Count == 1) return devices[0][0];
-            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= devices.Count) return devices[choice - 1][0];
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= devices.Count) return (devices[choice - 1][0], false);
             Console.WriteLine("编号无效，请重新选择。");
         }
     }
     static bool DriveOccupied(string mount) => DriveInfo.GetDrives().Any(d => d.Name.StartsWith(mount, StringComparison.OrdinalIgnoreCase));
-    static string ChooseDrive()
+    static string ChooseDrive(bool automatic)
     {
         string suggested = Enumerable.Range('K', 16).Concat(Enumerable.Range('D', 7))
             .Select(c => ((char)c) + ":").FirstOrDefault(d => !DriveOccupied(d));
         if (suggested == null) throw new IOException("没有可用盘符。");
+        if (automatic)
+        {
+            Console.WriteLine($"已自动选择空闲盘符：{suggested}");
+            return suggested;
+        }
         while (true)
         {
             Console.Write($"\n输入盘符（回车使用 {suggested}），或输入 Q 退出：");
@@ -565,8 +574,9 @@ static class Program
             if (interactive)
             {
                 Console.WriteLine("\nAndroid 文件盘（只读）\nWinFsp 已就绪；手机无需 APK。\n");
-                serial = ChooseDevice(adb);
-                mount = ChooseDrive();
+                var selected = ChooseDevice(adb);
+                serial = selected.Serial;
+                mount = ChooseDrive(selected.SingleDevice);
             }
             var devices = RunAdb(adb, "devices").Split('\n').Skip(1).Select(l => l.Trim().Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
                 .Where(p => p.Length >= 2 && p[1] == "device").Select(p => p[0]).ToList();

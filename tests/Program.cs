@@ -38,10 +38,26 @@ static class Tests
             bool refusedUnattended = false;
             try { WinFspSetup.EnsureInstalled(false); } catch (IOException) { refusedUnattended = true; }
             Check(refusedUnattended, "Unattended mount does not silently install a driver");
-            Console.SetIn(new StringReader("n\n"));
+            Console.SetIn(new StringReader(""));
             bool canceled = false;
-            try { WinFspSetup.EnsureInstalled(true); } catch (OperationCanceledException) { canceled = true; }
-            Check(canceled, "Declining installation cancels before UAC or MSI launch");
+            int launches = 0;
+            string setupFolder = null;
+            try
+            {
+                WinFspSetup.EnsureInstalled(true, installerRunner: start =>
+                {
+                    launches++;
+                    Check(start.Verb == "runas" && start.UseShellExecute, "Automatic installation requests UAC");
+                    Check(start.Arguments.Contains("/norestart") && start.Arguments.Contains("ADDLOCAL=F.User,F.Main"), "Installer keeps runtime-only and no-restart options");
+                    setupFolder = Path.GetDirectoryName(System.Text.RegularExpressions.Regex.Match(start.Arguments, "/i \\\"([^\\\"]+)\\\"").Groups[1].Value);
+                    throw new System.ComponentModel.Win32Exception(1223);
+                });
+            }
+            catch (OperationCanceledException) { canceled = true; }
+            Check(launches == 1, "Missing WinFsp automatically enters setup without reading Y confirmation");
+            Check(canceled, "Canceling UAC exits without mounting");
+            Check(!File.Exists(Path.Combine(setupFolder, WinFspSetup.InstallerName)), "Canceled setup removes the extracted MSI");
+            Directory.Delete(setupFolder);
         }
         finally
         {
