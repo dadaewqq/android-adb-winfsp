@@ -1,0 +1,9 @@
+**/bin/
+**/obj/
+app/
+dist/
+*.log
+server.pid
+stop.signal
+*.user
+config.local.json
