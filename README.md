@@ -6,16 +6,23 @@
 
 ## 下载与使用
 
-在 [Releases](https://github.com/dadaewqq/android-adb-winfsp/releases/latest) 下载 `AndroidAdbFs-windows-x64.zip`，完整解压到一个可写目录。
+在 [Releases](https://github.com/dadaewqq/android-adb-winfsp/releases/latest) 选择一个版本，完整解压到一个可写目录。两个版本功能相同，不必同时下载。
+
+| 下载包 | .NET 10 x64 Runtime | 适用场景 |
+| --- | --- | --- |
+| `AndroidAdbFs-windows-x64-framework-dependent.zip` | 需要预先安装 | 电脑已有 .NET 10，下载体积小。 |
+| `AndroidAdbFs-windows-x64-self-contained.zip` | 无需安装，包内自带运行时 | 分发给未安装 .NET 的同事，ZIP 约 34.3 MiB。 |
+
+自包含版使用随包运行时，无需卸载或更改电脑已有的 .NET；它不是 Native AOT。两个版本都仍需安装 WinFsp 并准备好 ADB。
 
 ### 环境要求
 
-- Windows x64，安装 [.NET 10 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)。
+- Windows x64。仅 framework-dependent 版需要安装 [.NET 10 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)；self-contained 版无需安装。
 - 安装 [WinFsp](https://winfsp.dev/)，默认的运行组件即可；编译源码才需要 Developer 组件。
 - 电脑有可用的 ADB；手机开启 USB 调试并允许此电脑调试。
 - 手机的 ADB 实现支持 `stat_v2` 和 `ls_v2`。程序连接本机默认 ADB 服务 `127.0.0.1:5037`。
 
-ADB、.NET Runtime 和 WinFsp 安装包均不包含在下载包内。
+两个下载包均不包含 ADB 和 WinFsp 安装包。只有 self-contained 版附带 .NET 运行时。
 
 ### 第一次启动
 
@@ -115,7 +122,7 @@ PHONE_B    device
 
 **K 盘已占用**：修改 `Drive` 为其他空闲盘符。
 
-**提示缺少 .NET 或 WinFsp**：安装 x64 .NET 10 Runtime 和 WinFsp，再启动。
+**提示缺少 .NET 或 WinFsp**：framework-dependent 版需安装 x64 .NET 10 Runtime，也可换用 self-contained 版。两个版本均需安装 WinFsp。
 
 **不支持 `stat_v2` / `ls_v2`**：检查手机和电脑 ADB 版本；程序未实现旧协议回退。
 
@@ -135,7 +142,12 @@ WinFsp 不在默认目录时：
 ./build.ps1 -WinFspDir 'D:/Tools/WinFsp'
 ```
 
-输出为 `dist/AndroidAdbFs-windows-x64.zip`，程序仍依赖目标电脑的 .NET 10 Runtime 和 WinFsp。
+一次构建生成两个 ZIP 及 `dist/SHA256SUMS.txt`：
+
+- `dist/AndroidAdbFs-windows-x64-framework-dependent.zip`：依赖目标电脑的 .NET 10 Runtime。
+- `dist/AndroidAdbFs-windows-x64-self-contained.zip`：自带 .NET 运行时。
+
+两者均依赖目标电脑的 WinFsp 和 ADB。自包含包未启用裁剪，以保留 WinFsp 托管绑定所需功能。
 
 也可以直接运行命令行程序：
 

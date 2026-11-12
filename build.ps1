@@ -1,28 +1,34 @@
 param([string]$WinFspDir='C:\Program Files (x86)\WinFsp')
 $ErrorActionPreference='Stop'
 $root=$PSScriptRoot
-$app=Join-Path $root 'app'
 $dist=Join-Path $root 'dist'
-New-Item -ItemType Directory -Path $app -ErrorAction SilentlyContinue | Out-Null
 New-Item -ItemType Directory -Path $dist -ErrorAction SilentlyContinue | Out-Null
-& dotnet publish (Join-Path $root 'src\AndroidAdbFs.csproj') -c Release --self-contained false -o $app "-p:WinFspDir=$WinFspDir"
-if($LASTEXITCODE -ne 0){throw 'dotnet publish failed'}
-$stage=Join-Path $dist ('stage-'+[guid]::NewGuid().ToString('N'))
-New-Item -ItemType Directory -Path (Join-Path $stage 'app') | Out-Null
-foreach($name in @('AndroidAdbFs.exe','AndroidAdbFs.dll','AndroidAdbFs.deps.json','AndroidAdbFs.runtimeconfig.json','winfsp-msil.dll')){
-    Copy-Item -LiteralPath (Join-Path $app $name) -Destination (Join-Path $stage 'app')
+$checksums=@()
+foreach($variant in @('framework-dependent','self-contained')){
+    $selfContained=($variant -eq 'self-contained')
+    $stage=Join-Path $dist ('stage-'+[guid]::NewGuid().ToString('N'))
+    $app=Join-Path $stage 'app'
+    New-Item -ItemType Directory -Path $app | Out-Null
+    try {
+        & dotnet publish (Join-Path $root 'src\AndroidAdbFs.csproj') -c Release -r win-x64 --self-contained $selfContained.ToString().ToLowerInvariant() -p:PublishAot=false -p:PublishTrimmed=false -o $app "-p:WinFspDir=$WinFspDir"
+        if($LASTEXITCODE -ne 0){throw "dotnet publish failed: $variant"}
+        Get-ChildItem -LiteralPath $app -File | Where-Object {$_.Extension -in @('.pdb','.xml')} | Remove-Item
+        foreach($name in @('start.cmd','stop.cmd','start.ps1','stop.ps1','config.json','README.md','LICENSE')){
+            Copy-Item -LiteralPath (Join-Path $root $name) -Destination $stage
+        }
+        Copy-Item -LiteralPath (Join-Path $root 'third_party\WinFsp-License.txt') -Destination $stage
+        [IO.File]::WriteAllText((Join-Path $stage 'PACKAGE.txt'),"Variant: $variant`r`nRequires installed .NET 10 x64 Runtime: $(!$selfContained)`r`nBoth variants require ADB and WinFsp.`r`n",[Text.UTF8Encoding]::new($false))
+        $name="AndroidAdbFs-windows-x64-$variant.zip"
+        $zip=Join-Path $dist $name
+        if(Test-Path -LiteralPath $zip){Remove-Item -LiteralPath $zip}
+        Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
+        $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        $checksums+="$hash  $name"
+        Write-Host "Package: $zip"
+    } finally {
+        $resolvedStage=[IO.Path]::GetFullPath($stage)
+        if(!$resolvedStage.StartsWith([IO.Path]::GetFullPath($dist)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected staging directory'}
+        if(Test-Path -LiteralPath $resolvedStage){Remove-Item -LiteralPath $resolvedStage -Recurse}
+    }
 }
-foreach($name in @('start.cmd','stop.cmd','start.ps1','stop.ps1','config.json','README.md','LICENSE')){
-    Copy-Item -LiteralPath (Join-Path $root $name) -Destination $stage
-}
-Copy-Item -LiteralPath (Join-Path $root 'third_party\WinFsp-License.txt') -Destination $stage
-$zip=Join-Path $dist 'AndroidAdbFs-windows-x64.zip'
-# Replace only the known build output, retaining unrelated files in dist.
-if(Test-Path -LiteralPath $zip){Remove-Item -LiteralPath $zip}
-Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
-$resolvedStage=[IO.Path]::GetFullPath($stage)
-if(!( $resolvedStage.StartsWith([IO.Path]::GetFullPath($dist)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase))){throw 'Unexpected staging directory'}
-Get-ChildItem -LiteralPath $stage -Recurse -File | Remove-Item
-Get-ChildItem -LiteralPath $stage -Recurse -Directory | Sort-Object { $_.FullName.Length } -Descending | Remove-Item
-Remove-Item -LiteralPath $stage
-Write-Host "Package: $zip"
+[IO.File]::WriteAllText((Join-Path $dist 'SHA256SUMS.txt'),($checksums -join "`n")+"`n",[Text.UTF8Encoding]::new($false))
