@@ -15,6 +15,28 @@ static class Tests
 
     static int Main()
     {
+        string[] names = ["100%.txt", "hello%20world.txt", "name%3A.txt", "binary 'quote' %.bin", "CON", "aux.txt", "NUL", "name:with?chars", "trailing. ", "测试 文件.txt", "%25", "%43ON", "a\\b", "percent%41"];
+        foreach (string name in names) Check(FileNames.Decode(FileNames.Encode(name)) == name, "Filename round-trip: " + name);
+        Check(FileNames.Encode("100%.txt") == "100%.txt", "Ordinary percent filenames stay unchanged");
+        foreach (string invalid in new[] { "%00", "%2F", ".", ".." })
+        {
+            bool rejected = false;
+            try { FileNames.Decode(invalid); } catch (ArgumentException) { rejected = true; }
+            Check(rejected, "Unsafe filename rejected: " + invalid);
+        }
+        var random = new Random(713);
+        const string alphabet = "abcABC0123% .:?<>|*'\\测试";
+        var encoded = new Dictionary<string, string>(StringComparer.Ordinal);
+        for (int i = 0; i < 10000; i++)
+        {
+            string name = new(Enumerable.Range(0, random.Next(1, 24)).Select(_ => alphabet[random.Next(alphabet.Length)]).ToArray());
+            if (name is "." or "..") continue;
+            string value = FileNames.Encode(name);
+            if (FileNames.Decode(value) != name) throw new Exception("Filename round-trip mismatch: " + name);
+            if (encoded.TryGetValue(value, out string other) && other != name) throw new Exception("Filename encoding collision");
+            encoded[value] = name;
+        }
+        Check(true, "10,000 filename round-trips and collision checks");
         string folder = Path.Combine(Path.GetTempPath(), "AndroidAdbFs-BootstrapTest-" + Guid.NewGuid().ToString("N"));
         string registryPath = @"Software\AndroidAdbFsTests\" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(folder);
