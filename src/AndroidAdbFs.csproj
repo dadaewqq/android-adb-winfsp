@@ -12,6 +12,7 @@
     <EmbeddedResource Include="..\LICENSE" LogicalName="AndroidAdbFs.LICENSE" />
     <EmbeddedResource Include="..\third_party\WinFsp-License.txt" LogicalName="AndroidAdbFs.WinFspLicense" />
     <EmbeddedResource Include="..\vendor\winfsp-2.1.25156.msi" LogicalName="AndroidAdbFs.WinFspInstaller" />
+    <EmbeddedResource Include="..\vendor\adb-37.0.1\*" LogicalName="AndroidAdbFs.Adb.%(Filename)%(Extension)" />
     <Reference Include="winfsp-msil">
       <HintPath>$(WinFspDir)\bin\winfsp-msil.dll</HintPath>
     </Reference>

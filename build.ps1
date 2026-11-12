@@ -2,6 +2,7 @@ param([string]$WinFspDir='C:\Program Files (x86)\WinFsp')
 $ErrorActionPreference='Stop'
 $root=$PSScriptRoot
 & (Join-Path $root 'tools\fetch-winfsp.ps1')
+& (Join-Path $root 'tools\fetch-adb.ps1')
 $dist=Join-Path $root 'dist'
 New-Item -ItemType Directory -Path $dist -ErrorAction SilentlyContinue | Out-Null
 $checksums=@()

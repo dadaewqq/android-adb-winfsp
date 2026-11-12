@@ -7,4 +7,4 @@ server.pid
 stop.signal
 *.user
 config.local.json
-vendor/*.msi
+vendor/

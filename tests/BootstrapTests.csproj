@@ -7,6 +7,8 @@
   </PropertyGroup>
   <ItemGroup>
     <Compile Include="..\src\WinFspSetup.cs" Link="WinFspSetup.cs" />
+    <Compile Include="..\src\AdbTools.cs" Link="AdbTools.cs" />
+    <EmbeddedResource Include="..\vendor\adb-37.0.1\*" LogicalName="AndroidAdbFs.Adb.%(Filename)%(Extension)" />
     <EmbeddedResource Include="..\vendor\winfsp-2.1.25156.msi" LogicalName="AndroidAdbFs.WinFspInstaller" />
   </ItemGroup>
 </Project>

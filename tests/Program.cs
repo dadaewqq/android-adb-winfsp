@@ -18,6 +18,25 @@ static class Tests
         string folder = Path.Combine(Path.GetTempPath(), "AndroidAdbFs-BootstrapTest-" + Guid.NewGuid().ToString("N"));
         string registryPath = @"Software\AndroidAdbFsTests\" + Guid.NewGuid().ToString("N");
         Directory.CreateDirectory(folder);
+        string adbDirectory = Path.Combine(folder, "adb-cache");
+        try
+        {
+            string adb = AdbTools.EnsureAvailable(adbDirectory);
+            Check(File.Exists(adb) && Directory.GetFiles(adbDirectory).Length == 4, "Bundled ADB extracts exactly its required files and notices");
+            var timestamp = File.GetLastWriteTimeUtc(adb);
+            AdbTools.EnsureAvailable(adbDirectory);
+            Check(File.GetLastWriteTimeUtc(adb) == timestamp, "Valid cached ADB is reused without rewriting");
+            string dependency = Path.Combine(adbDirectory, "AdbWinApi.dll");
+            File.WriteAllText(dependency, "corrupt");
+            AdbTools.EnsureAvailable(adbDirectory);
+            using var file = File.OpenRead(dependency);
+            Check(Convert.ToHexStringLower(SHA256.HashData(file)) == "c1d653030b4bde65d3e07e4d0b0979e17be56df1436cdd15528630f27808050d", "Corrupted ADB cache is restored from embedded resources");
+        }
+        finally
+        {
+            foreach (string file in Directory.GetFiles(adbDirectory)) File.Delete(file);
+            Directory.Delete(adbDirectory);
+        }
         string before = WinFspSetup.InstalledDirectory();
         using var sandbox = Registry.CurrentUser.CreateSubKey(registryPath);
         bool redirected = false;

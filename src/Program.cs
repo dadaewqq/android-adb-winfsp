@@ -433,25 +433,12 @@ static class Program
         return output.Trim();
     }
     static string Quote(string text) => "'" + text.Replace("'", "'\\''") + "'";
-    static string FindAdb(string explicitPath, bool interactive)
+    static string FindAdb(string explicitPath)
     {
         if (explicitPath != null) return explicitPath;
-        var candidates = new List<string> { Path.Combine(Path.GetDirectoryName(Environment.ProcessPath), "adb.exe") };
-        foreach (string dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
-            if (dir.Length > 0) candidates.Add(Path.Combine(dir.Trim('"'), "adb.exe"));
-        foreach (string key in new[] { "ANDROID_HOME", "ANDROID_SDK_ROOT" })
-        {
-            string sdk = Environment.GetEnvironmentVariable(key);
-            if (!string.IsNullOrEmpty(sdk)) candidates.Add(Path.Combine(sdk, "platform-tools", "adb.exe"));
-        }
-        candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk", "platform-tools", "adb.exe"));
-        string found = candidates.FirstOrDefault(File.Exists);
-        if (found != null) return found;
-        if (!interactive) throw new IOException("ADB not found. Specify --adb PATH.");
-        Console.WriteLine("未自动找到 ADB，请输入 adb.exe 完整路径（可拖入文件后回车）：");
-        string input = Console.ReadLine()?.Trim().Trim('"');
-        if (string.IsNullOrEmpty(input) || !File.Exists(input)) throw new IOException("ADB 路径无效。");
-        return Path.GetFullPath(input);
+        string adb = AdbTools.EnsureAvailable();
+        Console.WriteLine($"使用内置 ADB {AdbTools.Version}");
+        return adb;
     }
     static (string Serial, bool SingleDevice) ChooseDevice(string adb)
     {
@@ -548,6 +535,7 @@ static class Program
                     case "--adb": adb=args[++i]; break;
                     case "--serial": serial=args[++i]; break;
                     case "--stop-file": stopFile=args[++i]; break;
+                    case "--adb-version": Console.WriteLine(RunAdb(FindAdb(adb), "version")); return 0;
                     case "--install-winfsp": return WinFspSetup.EnsureInstalled(false, true) ? 0 : 3010;
                     case "--check-winfsp":
                         Console.WriteLine("Bundled installer: " + WinFspSetup.InstallerName + " SHA256=" + WinFspSetup.InstallerHash);
@@ -555,9 +543,9 @@ static class Program
                         Console.WriteLine(installed == null ? "WinFsp: not installed" : "WinFsp: " + installed);
                         return installed == null ? 1 : 0;
                     case "--extract-winfsp": WinFspSetup.ExtractInstaller(args[++i]); Console.WriteLine("Official WinFsp MSI extracted and SHA-256 verified."); return 0;
-                    case "--help": Console.WriteLine("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH] [--stop-file PATH]\nDouble-click for device selection and optional WinFsp setup.\n--check-winfsp checks installation; --install-winfsp installs only if missing.\n--extract-winfsp PATH extracts the official MSI without running it.\n--license shows embedded project and WinFsp licenses."); return 0;
+                    case "--help": Console.WriteLine("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH] [--stop-file PATH]\nDouble-click for device selection and optional WinFsp setup.\n--check-winfsp checks installation; --install-winfsp installs only if missing.\n--extract-winfsp PATH extracts the official MSI without running it.\n--adb-version shows bundled ADB version; --adb PATH overrides bundled ADB.\n--license shows embedded project, WinFsp and ADB licenses."); return 0;
                     case "--license":
-                        foreach (string resource in new[] { "AndroidAdbFs.LICENSE", "AndroidAdbFs.WinFspLicense" })
+                        foreach (string resource in new[] { "AndroidAdbFs.LICENSE", "AndroidAdbFs.WinFspLicense", "AndroidAdbFs.Adb.NOTICE.txt" })
                         {
                             using var reader = new StreamReader(typeof(Program).Assembly.GetManifestResourceStream(resource));
                             Console.WriteLine(reader.ReadToEnd());
@@ -570,7 +558,7 @@ static class Program
                 if (interactive && !Console.IsInputRedirected) { Console.WriteLine("按回车退出。"); Console.ReadLine(); }
                 return 3010;
             }
-            adb = FindAdb(adb, interactive);
+            adb = FindAdb(adb);
             if (interactive)
             {
                 Console.WriteLine("\nAndroid 文件盘（只读）\nWinFsp 已就绪；手机无需 APK。\n");
