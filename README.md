@@ -1,41 +1,66 @@
 # Android ADB WinFsp 文件盘
 
-把 Android 手机的共享存储挂载成 Windows **只读盘符**，让资源管理器、文件统计工具和普通桌面程序直接访问手机文件。
+将 Android 手机的共享存储挂载为 Windows **只读磁盘**，默认显示为 `K:`。挂载后，可以用资源管理器浏览文件、复制到电脑，也可以用支持普通盘符的工具统计目录大小。
 
-电脑端使用 C# / .NET 10 和 WinFsp，直接通过 ADB Sync 协议读取手机。**手机不需要安装 APK，不需要 root。**
+**手机不用安装 APK，不要求 root；电脑需要 ADB 和 WinFsp。** 可访问哪些目录，取决于手机授予 ADB 的权限。
 
-## 下载与使用
+## 1. 先选下载版本
 
-在 [Releases](https://github.com/dadaewqq/android-adb-winfsp/releases/latest) 选择一个版本，完整解压到一个可写目录。两个版本功能相同，不必同时下载。
+前往 **[最新版本下载页](https://github.com/dadaewqq/android-adb-winfsp/releases/latest)**，在页面的 **Assets** 中选择一个 ZIP：
 
-| 下载包 | .NET 10 x64 Runtime | 适用场景 |
-| --- | --- | --- |
-| `AndroidAdbFs-windows-x64-framework-dependent.zip` | 需要预先安装 | 电脑已有 .NET 10，下载体积小。 |
-| `AndroidAdbFs-windows-x64-self-contained.zip` | 无需安装，包内自带运行时 | 分发给未安装 .NET 的同事，ZIP 约 34.3 MiB。 |
+| 你的电脑环境 | 选择的文件 | ZIP 大小 |
+| --- | --- | ---: |
+| 已安装 .NET 10 x64 Runtime | `AndroidAdbFs-windows-x64-framework-dependent.zip` | 约 186 KiB |
+| 没有安装 .NET，或不想额外安装 | `AndroidAdbFs-windows-x64-self-contained.zip` | 约 34.3 MiB |
 
-自包含版使用随包运行时，无需卸载或更改电脑已有的 .NET；它不是 Native AOT。两个版本都仍需安装 WinFsp 并准备好 ADB。
+两个版本功能完全相同，任选一个即可：
 
-### 环境要求
+- **依赖版（framework-dependent）**：包内不带 .NET，使用电脑上已安装的 .NET 10 x64 Runtime。
+- **自包含版（self-contained）**：包内自带 .NET 运行时，电脑不需要另装 .NET；无需改动电脑已有的 .NET。
+- **两个版本都不包含 ADB 和 WinFsp，仍需自行准备。** 自包含版不是 Native AOT。
 
-- Windows x64。仅 framework-dependent 版需要安装 [.NET 10 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)；self-contained 版无需安装。
-- 安装 [WinFsp](https://winfsp.dev/)，默认的运行组件即可；编译源码才需要 Developer 组件。
-- 电脑有可用的 ADB；手机开启 USB 调试并允许此电脑调试。
-- 手机的 ADB 实现支持 `stat_v2` 和 `ls_v2`。程序连接本机默认 ADB 服务 `127.0.0.1:5037`。
+> 不要下载页面自动生成的 `Source code (zip)` 来运行；那是源码。请下载上表中以 `AndroidAdbFs-` 开头的文件。
 
-两个下载包均不包含 ADB 和 WinFsp 安装包。只有 self-contained 版附带 .NET 运行时。
+## 2. 首次使用：准备与启动
 
-### 第一次启动
+### 电脑和手机需要准备什么
 
-1. 连接手机，在手机上确认 USB 调试授权。
-2. 运行 `adb devices`，确认目标设备状态为 `device`。
-3. 双击 `start.cmd`，默认挂载到 `K:` 并打开资源管理器。
-4. 使用结束后双击 `stop.cmd`，正常卸载后再拔线。
+| 位置 | 要求 |
+| --- | --- |
+| 电脑系统 | Windows x64。 |
+| WinFsp | 安装 [WinFsp](https://winfsp.dev/) 的运行组件；日常使用不需要 Developer 组件。 |
+| ADB | 有可用的 `adb.exe`，手机已被识别。 |
+| .NET | **仅依赖版需要** [.NET 10 x64 Runtime](https://dotnet.microsoft.com/download/dotnet/10.0)。自包含版无需安装。 |
+| 手机 | 开启 USB 调试，通过数据线连接，并允许此电脑调试。 |
 
-启动会在后台运行挂载程序，无需一直开着命令窗口。请通过停止脚本卸载，不要直接删除目录或强制结束进程。
+### 启动步骤
 
-## 配置
+1. **完整解压 ZIP** 到一个可写目录，例如 `D:/AndroidDrive`。不要在压缩包内直接运行。
+2. **确认 ADB 连接正常**。在终端执行：
 
-用记事本编辑解压目录中的 `config.json`，停止后重新启动生效：
+   ```powershell
+   adb devices
+   ```
+
+   只有一台已授权手机时，应看到类似输出：
+
+   ```text
+   List of devices attached
+   PHONE_A    device
+   ```
+
+3. **双击 `start.cmd`**。默认把手机的 `/sdcard` 挂载为 `K:`，并自动打开资源管理器。
+4. **使用结束后双击 `stop.cmd`**。等卸载完成，再拔掉数据线。
+
+启动后程序在后台运行，无需保持命令窗口打开。关闭资源管理器窗口不会卸载磁盘；请使用 `stop.cmd` 停止。
+
+如果 ADB 未加入 PATH、K 盘已占用，或连接了多台手机，请先按下面的说明修改配置。
+
+## 3. 修改配置
+
+配置文件是解压目录中的 **`config.json`**。用记事本编辑并保存；如果已经挂载，先运行 `stop.cmd`，再运行 `start.cmd`，修改才会生效。
+
+默认配置：
 
 ```json
 {
@@ -46,29 +71,33 @@
 }
 ```
 
-| 字段 | 说明 |
-| --- | --- |
-| `Drive` | 空闲盘符，例如 `K:` 或 `M:`。已占用时会报错，不会覆盖其他盘。 |
-| `AdbPath` | `adb.exe` 完整路径；留空时查找 PATH、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 和默认 Android SDK 目录。 |
-| `Serial` | 目标手机的 ADB 序列号；留空时仅在恰好有一台已授权设备时自动选择。 |
-| `Root` | 手机导出目录，默认 `/sdcard`，即共享存储。 |
+| 配置项 | 含义 | 何时需要修改 |
+| --- | --- | --- |
+| `Drive` | Windows 盘符，默认 `K:`。 | 盘符已占用，或希望使用其他盘符。 |
+| `AdbPath` | `adb.exe` 的完整路径。 | 自动查找不到 ADB 时填写。 |
+| `Serial` | `adb devices` 中的设备序列号。 | 同时连接多台手机时，指定要挂载哪一台。 |
+| `Root` | 手机上要展示的目录，默认 `/sdcard`。 | 只想展示某个可访问目录时修改。 |
 
-ADB 没有加入 PATH 时，可指定路径，例如：
+**常见例子：ADB 放在 `E:/platform-tools/adb.exe`，希望挂载到 M 盘。**
 
 ```json
 {
-  "Drive": "K:",
+  "Drive": "M:",
   "AdbPath": "E:/platform-tools/adb.exe",
   "Serial": "",
   "Root": "/sdcard"
 }
 ```
 
-JSON 中建议使用 `/` 表示路径分隔符；使用反斜杠时必须写成 `\\`。
+路径建议使用 `/`，这样可以直接填写。若使用 Windows 的反斜杠，JSON 中必须写成双反斜杠，例如 `E:\\platform-tools\\adb.exe`。
 
-## 连接多台手机
+`AdbPath` 留空时，程序依次查找 PATH、`ANDROID_HOME`、`ANDROID_SDK_ROOT` 和默认 Android SDK 目录。`Serial` 留空时，仅在**恰好有一台已授权设备**的情况下自动选择。
 
-先执行 `adb devices`，复制需要挂载的设备序列号，填入 `Serial`。
+## 4. 连接多台手机
+
+### 只挂载其中一台
+
+运行 `adb devices`，找到目标手机的序列号：
 
 ```text
 List of devices attached
@@ -76,96 +105,119 @@ PHONE_A    device
 PHONE_B    device
 ```
 
-例如把 `PHONE_A` 挂载到 K 盘：
+要挂载第一台，把 `config.json` 中的 `Serial` 改为 `"PHONE_A"`；挂载第二台则填 `"PHONE_B"`。请替换成实际序列号。
 
-```json
-{
-  "Drive": "K:",
-  "AdbPath": "",
-  "Serial": "PHONE_A",
-  "Root": "/sdcard"
-}
-```
+### 同时挂载两台
 
-同时挂载多台：把解压目录复制成两份，分别配置不同的 `Serial` 和 `Drive`，再分别启动。每个目录保存各自的进程记录、停止信号和日志；请在对应目录运行 `stop.cmd`。不要让两个实例使用同一个盘符。
+**把完整解压目录复制两份**，例如 `AndroidDrive-A` 和 `AndroidDrive-B`，按下表修改各自的 `config.json`：
 
-## 能做什么及限制
+| 所在目录 | `Serial` | `Drive` |
+| --- | --- | --- |
+| `AndroidDrive-A` | `PHONE_A` | `K:` |
+| `AndroidDrive-B` | `PHONE_B` | `M:` |
 
-- 浏览目录、复制文件到电脑、运行支持普通盘符的文件统计工具。
-- **只读**：不支持通过该盘写入、删除、重命名或修改手机文件。
-- 能访问的路径取决于手机 ADB 权限；非 root 手机的系统目录、应用私有目录等可能无法访问。
-- 目录元数据缓存约 3 秒，手机上发生的修改可能稍后显示。
-- 使用 ADB Sync 流式读取；向后跳转可能重新读取并丢弃前面的内容，大文件随机读取比带手机端服务的方案慢。
-- 断线后不自动重连；请停止挂载，重新连接后再启动。
-- 不支持远程 ADB 服务或自定义 ADB 服务端口。
+分别双击两个目录中的 `start.cmd`，即可同时看到 K 盘和 M 盘。卸载时，也要分别运行各自目录中的 `stop.cmd`。
 
-## 实测性能
+每份目录保存自己的进程记录、停止信号和日志，不能共用同一个运行目录。**两台手机不能使用同一盘符。**
 
-以下是同一台 Android 手机、同一 USB 连接下的两轮平均值，作为使用参考，不代表所有设备。K 盘是本项目，L 盘是另一个需要手机 APK 的 AFS 项目。
+## 5. 使用范围与限制
 
-| 测试 | 本项目 | AFS | adb pull |
+| 操作 | 是否支持 |
+| --- | --- |
+| 浏览目录、查看文件属性 | 支持。 |
+| 将手机文件复制到电脑 | 支持。 |
+| 用支持普通盘符的工具统计文件大小 | 支持，统计范围受 ADB 访问权限限制。 |
+| 向手机复制文件、修改、删除或重命名 | **不支持，本项目为只读盘。** |
+| 访问应用私有目录等受限位置 | 取决于手机的 ADB 权限，不保证可访问。 |
+| 手机断线后自动恢复挂载 | 不支持；请停止挂载，重新连接后再启动。 |
+
+还需要了解：
+
+- 默认导出 `/sdcard`，即手机共享存储，不是手机完整系统分区。
+- 目录元数据缓存约 3 秒；手机上刚发生的修改可能稍后显示。
+- 顺序读取适合文件复制；大文件的随机跳转可能较慢，尤其是向后跳转。
+- 仅连接本机默认 ADB 服务 `127.0.0.1:5037`，不支持自定义服务端口或远程 ADB 服务。
+- 手机的 ADB 实现必须支持 `stat_v2` 和 `ls_v2`，目前没有旧协议回退。
+
+## 6. 遇到问题先查这里
+
+| 现象 | 处理方法 |
+| --- | --- |
+| 找不到 ADB | 在 `config.json` 的 `AdbPath` 中填写 `adb.exe` 完整路径。 |
+| `adb devices` 没有设备 | 检查数据线、USB 调试和厂商 ADB 驱动。 |
+| 设备状态是 `unauthorized` | 在手机上确认允许此电脑调试。 |
+| 设备状态是 `offline` | 检查连接，重新插拔后确认状态恢复为 `device`。 |
+| 提示有多台设备 | 在 `Serial` 中指定目标手机序列号。 |
+| 提示盘符已占用 | 把 `Drive` 改为其他空闲盘符。 |
+| 提示缺少 .NET | 安装 .NET 10 x64 Runtime，或改用自包含版。 |
+| 提示缺少 WinFsp | 安装 WinFsp 后重试，自包含版也需要它。 |
+| 提示不支持 `stat_v2` / `ls_v2` | 检查电脑和手机的 ADB 版本；旧实现可能无法使用。 |
+| 某些目录无法打开 | 检查该目录是否允许 ADB 访问。 |
+| 断线后磁盘不可用 | 运行 `stop.cmd`，重新连接手机，再运行 `start.cmd`。 |
+
+其他错误请查看同目录的 **`stderr.log`** 和 **`stdout.log`**。反馈时可附错误内容；日志可能含设备序列号和路径，分享前请按需要脱敏。
+
+## 性能参考
+
+下面是同一台 Android 手机、同一 USB 连接下的两轮平均值。**这是单台设备上的实测，不代表所有手机。** AFS 是另一个需要手机端 APK 的文件盘方案。
+
+| 测试 | 本项目 | AFS | 直接 `adb pull` |
 | --- | ---: | ---: | ---: |
-| 复制 107.7 MB 文件 | 2.76 秒 | 4.60 秒 | 2.80 秒 |
+| 复制一个 107.7 MB 文件 | 2.76 秒 | 4.60 秒 | 2.80 秒 |
 | 复制 256 个小文件，共约 9 MB | 1.66 秒 | 5.54 秒 | 1.59 秒 |
-| 遍历 Pictures，5994 个文件 | 1.93 秒 | 2.06 秒 | — |
+| 遍历 Pictures，5994 个文件，并获取大小 | 1.93 秒 | 2.06 秒 | — |
 | 在同一大文件中随机读取 8 次，每次 64 KiB | 7.09 秒 | 0.137 秒 | — |
 
-复制后的 SHA-256 均验证通过；校验和清理不计入耗时。电脑和手机缓存未清空，两轮顺序相反。目录遍历包含获取文件大小；随机读取使用相同偏移及内容校验。这里只测试了读取，没有测试写入。
+文件复制适合本项目；需要频繁跳转读取大文件时，带手机端服务、支持按偏移读取的方案更有优势。
 
-## 常见问题
+测试未清空电脑及手机缓存，两轮执行顺序相反。复制文件的 SHA-256 和随机读取内容均验证通过；校验、清理不计入耗时。本项目只读，未测试写入性能。
 
-**找不到 ADB**：在 `config.json` 设置 `AdbPath`。
+## 源码编译
 
-**`unauthorized` / `offline` / 没有设备**：先检查 `adb devices`，在手机上允许调试；必要时检查数据线、USB 模式和厂商 ADB 驱动。
+普通用户只需下载发布包。以下内容供需要修改源码或自行打包的开发者使用。
 
-**提示多个设备**：填写 `Serial`；只连接一台已授权设备时可以留空。
-
-**K 盘已占用**：修改 `Drive` 为其他空闲盘符。
-
-**提示缺少 .NET 或 WinFsp**：framework-dependent 版需安装 x64 .NET 10 Runtime，也可换用 self-contained 版。两个版本均需安装 WinFsp。
-
-**不支持 `stat_v2` / `ls_v2`**：检查手机和电脑 ADB 版本；程序未实现旧协议回退。
-
-**挂载失败或目录不可访问**：查看 `stderr.log`、`stdout.log`。日志可能包含设备序列号或文件路径，分享前请按需要脱敏。
-
-## 从源码编译与打包
-
-安装 .NET 10 SDK 和 WinFsp（包含 Developer 组件），在项目根目录运行：
+安装 **.NET 10 SDK** 和带 **Developer 组件的 WinFsp**，在项目根目录执行：
 
 ```powershell
 powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1
 ```
 
-WinFsp 不在默认目录时：
+WinFsp 安装在其他目录时：
 
 ```powershell
-./build.ps1 -WinFspDir 'D:/Tools/WinFsp'
+powershell -NoProfile -ExecutionPolicy Bypass -File ./build.ps1 -WinFspDir 'D:/Tools/WinFsp'
 ```
 
-一次构建生成两个 ZIP 及 `dist/SHA256SUMS.txt`：
+构建完成后，`dist` 目录包含两个 ZIP 和校验文件：
 
-- `dist/AndroidAdbFs-windows-x64-framework-dependent.zip`：依赖目标电脑的 .NET 10 Runtime。
-- `dist/AndroidAdbFs-windows-x64-self-contained.zip`：自带 .NET 运行时。
+```text
+AndroidAdbFs-windows-x64-framework-dependent.zip
+AndroidAdbFs-windows-x64-self-contained.zip
+SHA256SUMS.txt
+```
 
-两者均依赖目标电脑的 WinFsp 和 ADB。自包含包未启用裁剪，以保留 WinFsp 托管绑定所需功能。
+自包含版未启用裁剪，以保留 WinFsp 托管绑定所需功能。两个版本都不是 Native AOT。
 
-也可以直接运行命令行程序：
+如需直接运行程序，在**解压后的发布包目录**执行：
 
 ```powershell
 ./app/AndroidAdbFs.exe --adb 'E:/platform-tools/adb.exe' --mount M: --root /sdcard --serial PHONE_A
 ```
 
-命令行前台运行时按 Ctrl+C 正常卸载。脚本模式通过 `--stop-file` 实现后台进程的正常停止。
+前台运行时按 Ctrl+C 正常卸载；启动脚本在后台运行时，通过 `--stop-file` 配合停止脚本卸载。
 
-## 工作方式
+## 实现与许可
 
-`Windows 文件操作 → WinFsp → C# 文件系统 → 本机 ADB 服务 → USB → 手机 adbd`
+数据访问路径：
 
-目录读取使用 ADB Sync v2，批量获取目录项及属性。数据读取使用 Sync `RECV`，复用完整事务结束后的连接；中途停止读取的连接会被丢弃。程序没有额外的整文件内容缓存。
+```text
+Windows 程序 → WinFsp → 本项目 → 本机 ADB 服务 → USB → 手机 adbd
+```
 
-## 许可与致谢
+目录读取使用 ADB Sync v2，批量获取目录项与属性；文件数据通过 Sync `RECV` 流式读取。完整事务结束后的连接可复用，中途停止的读取连接会被丢弃。程序没有额外的整文件内容缓存；向后跳转可能需要重新读取并跳过前面的数据。
 
-本项目使用 GPL-3.0-or-later，见 `LICENSE`。
+本项目使用 **GPL-3.0-or-later**，见 [LICENSE](LICENSE)。
 
 WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos。
-WinFsp 仓库：<https://github.com/winfsp/winfsp>；其许可与例外条款保留在 `third_party/WinFsp-License.txt`，发布包亦附带该文件。WinFsp 不属于本项目自制代码。
+
+WinFsp 仓库：<https://github.com/winfsp/winfsp>。其许可与例外条款保留在 [third_party/WinFsp-License.txt](third_party/WinFsp-License.txt)，发布包亦附带该文件。
