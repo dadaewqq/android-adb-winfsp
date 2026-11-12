@@ -425,21 +425,89 @@ static class Program
         var start = new ProcessStartInfo(adb) { RedirectStandardOutput = true, RedirectStandardError = true, CreateNoWindow = true };
         foreach (string arg in arguments) start.ArgumentList.Add(arg);
         using var process = Process.Start(start);
-        string output = process.StandardOutput.ReadToEnd(); string error = process.StandardError.ReadToEnd();
+        var outputTask = process.StandardOutput.ReadToEndAsync();
+        var errorTask = process.StandardError.ReadToEndAsync();
         if (!process.WaitForExit(15000)) { process.Kill(); throw new IOException("ADB command timed out"); }
+        string output = outputTask.GetAwaiter().GetResult(), error = errorTask.GetAwaiter().GetResult();
         if (process.ExitCode != 0) throw new IOException(error);
         return output.Trim();
     }
     static string Quote(string text) => "'" + text.Replace("'", "'\\''") + "'";
+    static string FindAdb(string explicitPath, bool interactive)
+    {
+        if (explicitPath != null) return explicitPath;
+        var candidates = new List<string> { Path.Combine(AppContext.BaseDirectory, "adb.exe") };
+        foreach (string dir in (Environment.GetEnvironmentVariable("PATH") ?? "").Split(Path.PathSeparator))
+            if (dir.Length > 0) candidates.Add(Path.Combine(dir.Trim('"'), "adb.exe"));
+        foreach (string key in new[] { "ANDROID_HOME", "ANDROID_SDK_ROOT" })
+        {
+            string sdk = Environment.GetEnvironmentVariable(key);
+            if (!string.IsNullOrEmpty(sdk)) candidates.Add(Path.Combine(sdk, "platform-tools", "adb.exe"));
+        }
+        candidates.Add(Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Android", "Sdk", "platform-tools", "adb.exe"));
+        string found = candidates.FirstOrDefault(File.Exists);
+        if (found != null) return found;
+        if (!interactive) throw new IOException("ADB not found. Specify --adb PATH.");
+        Console.WriteLine("未自动找到 ADB，请输入 adb.exe 完整路径（可拖入文件后回车）：");
+        string input = Console.ReadLine()?.Trim().Trim('"');
+        if (string.IsNullOrEmpty(input) || !File.Exists(input)) throw new IOException("ADB 路径无效。");
+        return Path.GetFullPath(input);
+    }
+    static string ChooseDevice(string adb)
+    {
+        while (true)
+        {
+            string listing = RunAdb(adb, "devices", "-l");
+            var devices = listing.Split('\n').Skip(1)
+                .Select(l => l.Trim().Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
+                .Where(p => p.Length >= 2 && p[1] == "device").ToList();
+            Console.WriteLine("\n连接状态：\n" + listing);
+            if (devices.Count == 0)
+            {
+                Console.WriteLine("未找到已授权手机。请连接手机并允许 USB 调试。回车刷新，输入 Q 退出：");
+                string retry = Console.ReadLine();
+                if (retry == null || retry.Trim().Equals("q", StringComparison.OrdinalIgnoreCase)) throw new OperationCanceledException();
+                continue;
+            }
+            Console.WriteLine("\n请选择要挂载的手机：");
+            for (int i = 0; i < devices.Count; i++) Console.WriteLine($"  {i + 1}. {string.Join(' ', devices[i])}");
+            Console.Write(devices.Count == 1 ? "回车选择第 1 台，或输入 Q 退出：" : "输入编号，或输入 Q 退出：");
+            string input = Console.ReadLine()?.Trim();
+            if (input == null || input.Equals("q", StringComparison.OrdinalIgnoreCase)) throw new OperationCanceledException();
+            if (input.Length == 0 && devices.Count == 1) return devices[0][0];
+            if (int.TryParse(input, out int choice) && choice >= 1 && choice <= devices.Count) return devices[choice - 1][0];
+            Console.WriteLine("编号无效，请重新选择。");
+        }
+    }
+    static bool DriveOccupied(string mount) => DriveInfo.GetDrives().Any(d => d.Name.StartsWith(mount, StringComparison.OrdinalIgnoreCase));
+    static string ChooseDrive()
+    {
+        string suggested = Enumerable.Range('K', 16).Concat(Enumerable.Range('D', 7))
+            .Select(c => ((char)c) + ":").FirstOrDefault(d => !DriveOccupied(d));
+        if (suggested == null) throw new IOException("没有可用盘符。");
+        while (true)
+        {
+            Console.Write($"\n输入盘符（回车使用 {suggested}），或输入 Q 退出：");
+            string input = Console.ReadLine()?.Trim().ToUpperInvariant();
+            if (input == null || input == "Q") throw new OperationCanceledException();
+            if (input.Length == 0) return suggested;
+            if (input.Length == 1) input += ":";
+            if (input.Length != 2 || input[0] < 'D' || input[0] > 'Z' || input[1] != ':') { Console.WriteLine("请输入 D 到 Z 之间的盘符。"); continue; }
+            if (DriveOccupied(input)) { Console.WriteLine("该盘符已占用，请换一个。"); continue; }
+            return input;
+        }
+    }
     static int Main(string[] args)
     {
+        bool interactive = args.Length == 0;
+        Console.OutputEncoding = Encoding.UTF8;
         try
         {
             Console.WriteLine("Android ADB WinFsp - GPL-3.0-or-later");
             Console.WriteLine("WinFsp - Windows File System Proxy, Copyright (C) Bill Zissimopoulos");
             Console.WriteLine("https://github.com/winfsp/winfsp");
-            string mount = "K:", root = "/sdcard", adb = "adb.exe", serial = null;
-            string stopFile = Path.Combine(AppContext.BaseDirectory, "stop.signal");
+            string mount = "K:", root = "/sdcard", adb = null, serial = null;
+            string stopFile = null;
             for (int i=0; i<args.Length; i++)
                 switch (args[i]) {
                     case "--mount": mount=args[++i]; break;
@@ -447,8 +515,23 @@ static class Program
                     case "--adb": adb=args[++i]; break;
                     case "--serial": serial=args[++i]; break;
                     case "--stop-file": stopFile=args[++i]; break;
+                    case "--help": Console.WriteLine("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH] [--stop-file PATH]\nDouble-click with no arguments for device and drive selection.\n--license shows embedded project and WinFsp licenses."); return 0;
+                    case "--license":
+                        foreach (string resource in new[] { "AndroidAdbFs.LICENSE", "AndroidAdbFs.WinFspLicense" })
+                        {
+                            using var reader = new StreamReader(typeof(Program).Assembly.GetManifestResourceStream(resource));
+                            Console.WriteLine(reader.ReadToEnd());
+                        }
+                        return 0;
                     default: throw new ArgumentException("Usage: AndroidAdbFs [--mount K:] [--root /sdcard] [--serial ID] [--adb PATH]");
                 }
+            adb = FindAdb(adb, interactive);
+            if (interactive)
+            {
+                Console.WriteLine("\nAndroid 文件盘（只读）\n需要已安装 WinFsp；手机无需 APK。\n");
+                serial = ChooseDevice(adb);
+                mount = ChooseDrive();
+            }
             var devices = RunAdb(adb, "devices").Split('\n').Skip(1).Select(l => l.Trim().Split((char[])null, StringSplitOptions.RemoveEmptyEntries))
                 .Where(p => p.Length >= 2 && p[1] == "device").Select(p => p[0]).ToList();
             serial ??= devices.Count == 1 ? devices[0] : throw new IOException("Connect exactly one authorized Android device or specify --serial");
@@ -466,15 +549,26 @@ static class Program
             int status = host.MountEx(mount, 8, null, false, 0);
             if (status < 0) throw new IOException($"WinFsp mount failed: 0x{status:X8}");
             Console.WriteLine($"MOUNTED {host.MountPoint()} <- {serial}:{root} (read-only)"); Console.Out.Flush();
+            if (interactive)
+            {
+                Console.WriteLine($"\n已挂载到 {mount}，可浏览或复制文件到电脑。\n请保留此窗口；在这里按回车，或按 Ctrl+C，正常卸载并退出。\n同时挂载其他手机时，再双击打开一个 EXE 窗口即可。");
+                _ = Task.Run(() => { Console.ReadLine(); stop.Set(); });
+            }
             try {
                 int tick=0;
                 while (!stop.Wait(500)) {
-                    if (File.Exists(stopFile)) break;
-                    if (++tick % 20 == 0) { fs.Stats(); Console.Out.Flush(); }
+                    if (stopFile != null && File.Exists(stopFile)) break;
+                    if (!interactive && ++tick % 20 == 0) { fs.Stats(); Console.Out.Flush(); }
                 }
             } finally { host.Unmount(); fs.Stats(); Console.WriteLine("UNMOUNTED"); }
             return 0;
         }
-        catch (Exception ex) { Console.Error.WriteLine(ex); return 1; }
+        catch (OperationCanceledException) { return 0; }
+        catch (Exception ex)
+        {
+            Console.Error.WriteLine(ex);
+            if (interactive && !Console.IsInputRedirected) { Console.WriteLine("\n启动失败。检查 ADB 连接和 WinFsp 安装后重试。按回车退出。"); Console.ReadLine(); }
+            return 1;
+        }
     }
 }

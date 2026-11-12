@@ -6,25 +6,18 @@ New-Item -ItemType Directory -Path $dist -ErrorAction SilentlyContinue | Out-Nul
 $checksums=@()
 foreach($variant in @('framework-dependent','self-contained')){
     $selfContained=($variant -eq 'self-contained')
+    $sc=$selfContained.ToString().ToLowerInvariant()
     $stage=Join-Path $dist ('stage-'+[guid]::NewGuid().ToString('N'))
-    $app=Join-Path $stage 'app'
-    New-Item -ItemType Directory -Path $app | Out-Null
+    New-Item -ItemType Directory -Path $stage | Out-Null
     try {
-        & dotnet publish (Join-Path $root 'src\AndroidAdbFs.csproj') -c Release -r win-x64 --self-contained $selfContained.ToString().ToLowerInvariant() -p:PublishAot=false -p:PublishTrimmed=false -o $app "-p:WinFspDir=$WinFspDir"
+        & dotnet publish (Join-Path $root 'src\AndroidAdbFs.csproj') -c Release -r win-x64 "-p:SelfContained=$sc" "-p:PublishSelfContained=$sc" -p:PublishAot=false -p:PublishTrimmed=false -p:PublishSingleFile=true -p:IncludeAllContentForSelfExtract=true "-p:EnableCompressionInSingleFile=$sc" -p:DebugType=None -p:DebugSymbols=false -o $stage "-p:WinFspDir=$WinFspDir"
         if($LASTEXITCODE -ne 0){throw "dotnet publish failed: $variant"}
-        Get-ChildItem -LiteralPath $app -File | Where-Object {$_.Extension -in @('.pdb','.xml')} | Remove-Item
-        foreach($name in @('start.cmd','stop.cmd','start.ps1','stop.ps1','config.json','README.md','LICENSE')){
-            Copy-Item -LiteralPath (Join-Path $root $name) -Destination $stage
-        }
-        Copy-Item -LiteralPath (Join-Path $root 'third_party\WinFsp-License.txt') -Destination $stage
-        [IO.File]::WriteAllText((Join-Path $stage 'PACKAGE.txt'),"Variant: $variant`r`nRequires installed .NET 10 x64 Runtime: $(!$selfContained)`r`nBoth variants require ADB and WinFsp.`r`n",[Text.UTF8Encoding]::new($false))
-        $name="AndroidAdbFs-windows-x64-$variant.zip"
-        $zip=Join-Path $dist $name
-        if(Test-Path -LiteralPath $zip){Remove-Item -LiteralPath $zip}
-        Compress-Archive -Path (Join-Path $stage '*') -DestinationPath $zip
-        $hash=(Get-FileHash -LiteralPath $zip -Algorithm SHA256).Hash.ToLowerInvariant()
+        $name="AndroidAdbFs-windows-x64-$variant.exe"
+        $target=Join-Path $dist $name
+        Copy-Item -LiteralPath (Join-Path $stage 'AndroidAdbFs.exe') -Destination $target
+        $hash=(Get-FileHash -LiteralPath $target -Algorithm SHA256).Hash.ToLowerInvariant()
         $checksums+="$hash  $name"
-        Write-Host "Package: $zip"
+        Write-Host "Single-file app: $target"
     } finally {
         $resolvedStage=[IO.Path]::GetFullPath($stage)
         if(!$resolvedStage.StartsWith([IO.Path]::GetFullPath($dist)+[IO.Path]::DirectorySeparatorChar,[StringComparison]::OrdinalIgnoreCase)){throw 'Unexpected staging directory'}

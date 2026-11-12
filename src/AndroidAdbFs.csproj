@@ -9,6 +9,8 @@
     <WinFspDir Condition="'$(WinFspDir)' == ''">C:\Program Files (x86)\WinFsp</WinFspDir>
   </PropertyGroup>
   <ItemGroup>
+    <EmbeddedResource Include="..\LICENSE" LogicalName="AndroidAdbFs.LICENSE" />
+    <EmbeddedResource Include="..\third_party\WinFsp-License.txt" LogicalName="AndroidAdbFs.WinFspLicense" />
     <Reference Include="winfsp-msil">
       <HintPath>$(WinFspDir)\bin\winfsp-msil.dll</HintPath>
     </Reference>
